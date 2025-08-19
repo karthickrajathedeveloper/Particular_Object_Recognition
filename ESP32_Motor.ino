@@ -1,12 +1,14 @@
 /*
- * ESP32 Rover + ESP32-CAM stream + Motor Control + Gas Sensor + Blynk + mDNS
- */
+   ESP32 Rover + ESP32-CAM stream + Motor Control + Gas Sensor + Blynk + mDNS
+*/
 
 #define BLYNK_TEMPLATE_ID "TMPL3aFPDopeM"
 #define BLYNK_TEMPLATE_NAME "Smart dustbin"
 #define BLYNK_AUTH_TOKEN "wjKzlfJfcuuzvxmbqSMD9PzZ6whLxof3"
 #define BLYNK_PRINT Serial
 
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
 #include <WiFi.h>
 #include <WebServer.h>
 #include <BlynkSimpleEsp32.h>
@@ -20,15 +22,20 @@ const char* password = "0987654321";
 // ESP32-CAM stream URL (hostname based, not IP)
 const char* cam_url = "http://esp32cam.local/stream";
 
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
 // ===== Motor control pins =====
-#define IN1 14
-#define IN2 27
-#define IN3 26
-#define IN4 25
+#define IN1 27
+#define IN2 26
+#define IN3 25
+#define IN4 33
 
 // ===== Gas sensor pins =====
-#define GAS_SENSOR1 33
-#define GAS_SENSOR2 35
+#define GAS_SENSOR1 13
+#define GAS_SENSOR2 12
+
+#define moisture 14
+#define relay 18
 
 // Motor speed (PWM duty) hardcoded = 200
 int motorSpeed = 200; // range 0-255
@@ -76,28 +83,28 @@ setInterval(reloadStream, 5000);
 // ===== Motor control functions =====
 void forward() {
   Serial.println("Forward");
-  analogWrite(IN1, motorSpeed); digitalWrite(IN2, LOW);
-  analogWrite(IN3, motorSpeed); digitalWrite(IN4, LOW);
+  analogWrite(IN1, motorSpeed); analogWrite(IN2, 0);
+  analogWrite(IN3, motorSpeed); analogWrite(IN4, 0);
 }
 void backward() {
   Serial.println("Backward");
-  digitalWrite(IN1, LOW); analogWrite(IN2, motorSpeed);
-  digitalWrite(IN3, LOW); analogWrite(IN4, motorSpeed);
+  analogWrite(IN1, 0); analogWrite(IN2, motorSpeed);
+  analogWrite(IN3, 0); analogWrite(IN4, motorSpeed);
 }
 void left() {
   Serial.println("Left");
-  digitalWrite(IN1, LOW); analogWrite(IN2, motorSpeed);
-  analogWrite(IN3, motorSpeed); digitalWrite(IN4, LOW);
+  digitalWrite(IN1, 0); analogWrite(IN2, motorSpeed);
+  analogWrite(IN3, motorSpeed); digitalWrite(IN4, 0);
 }
 void right() {
   Serial.println("Right");
-  analogWrite(IN1, motorSpeed); digitalWrite(IN2, LOW);
-  digitalWrite(IN3, LOW); analogWrite(IN4, motorSpeed);
+  analogWrite(IN1, motorSpeed); analogWrite(IN2, 0);
+  analogWrite(IN3, 0); analogWrite(IN4, motorSpeed);
 }
 void stopMotor() {
   Serial.println("Stop");
-  digitalWrite(IN1, LOW); digitalWrite(IN2, LOW);
-  digitalWrite(IN3, LOW); digitalWrite(IN4, LOW);
+  analogWrite(IN1, 0); analogWrite(IN2, 0);
+  analogWrite(IN3, 0); analogWrite(IN4, 0);
 }
 
 // ===== Blynk Virtual Pin Handler =====
@@ -114,6 +121,13 @@ void sendGasSensor() {
 
   Blynk.virtualWrite(V1, gas1);
   Blynk.virtualWrite(V2, gas2);
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Gas1: ");
+  lcd.print(gas1);
+  lcd.setCursor(0, 1);
+  lcd.print("Gas2: ");
+  lcd.print(gas2);
 }
 
 void setup() {
@@ -122,6 +136,10 @@ void setup() {
   // Motor pin setup
   pinMode(IN1, OUTPUT); pinMode(IN2, OUTPUT);
   pinMode(IN3, OUTPUT); pinMode(IN4, OUTPUT);
+  pinMode(moisture,INPUT); pinMode(relay,OUTPUT);
+  // Initialize LCD
+  lcd.init();
+  lcd.backlight();
   stopMotor();
 
   // WiFi + Blynk
@@ -162,7 +180,14 @@ void setup() {
 void loop() {
   server.handleClient();
   Blynk.run();
-
+  if(digitalRead(moisture)== 0)
+  {
+    digitalWrite(relay,HIGH);
+  }
+  else
+  {
+    digitalWrite(relay,LOW);
+  }
   static unsigned long lastSend = 0;
   if (millis() - lastSend > 2000) { // send every 2 sec
     sendGasSensor();
