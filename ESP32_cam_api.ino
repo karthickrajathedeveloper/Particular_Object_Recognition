@@ -1,7 +1,6 @@
 // ESP32-CAM + Edge Impulse + MJPEG stream + mDNS (esp32cam.local)
 // - DHCP (auto IP)
 // - FIX: ei_camera_* functions are GLOBAL (not static) to resolve linker errors
-//- If object detect call the api 
 
 
 //------------------------------------------------
@@ -64,7 +63,8 @@ const char *WIFI_PASS = "0987654321";
 
 //------------------Variables------------------------
 bool dustbinFullDetected = false;
-
+int noObject = 0;
+int temp = 0;
 /* ---------------- Globals ---------------- */
 static bool debug_nn = false;
 static bool is_initialised = false;
@@ -134,6 +134,7 @@ void apiCall() {
     } else
       Serial.printf("Blynk API Call failed: %s\n", http.errorToString(httpCode).c_str());
     http.end();
+    temp = 0;
   }
 }
 
@@ -174,9 +175,11 @@ void setup() {
 void loop() {
   Blynk.run();
   timer.run();
-  apiCall();
-  // Device is working fine -> V4 LED ON
-
+  if (noObject = 1)
+  {
+    apiCall();
+  }
+  
   if (ei_sleep(5) != EI_IMPULSE_OK) return;
 
   snapshot_buf = (uint8_t *)malloc(EI_CAMERA_RAW_FRAME_BUFFER_COLS * EI_CAMERA_RAW_FRAME_BUFFER_ROWS * EI_CAMERA_FRAME_BYTE_SIZE);
@@ -213,6 +216,7 @@ void loop() {
 
 #if EI_CLASSIFIER_OBJECT_DETECTION == 1
   uint32_t shown = 0;
+  
   for (uint32_t i = 0; i < result.bounding_boxes_count && shown < 3; i++) {
     ei_impulse_result_bounding_box_t bb = result.bounding_boxes[i];
     if (bb.value == 0) continue;
@@ -222,16 +226,26 @@ void loop() {
     if (wrote < 0 || (size_t)wrote >= sizeof(last_prediction) - n) { break; }
     n += (size_t)wrote;
     shown++;
+    temp++;
     if (strcmp(bb.label, "dustbin_Full") == 0) {
+      noObject = 1;
       dustbinFullDetected = true;
       Serial.println("Dustbin Full");
     } else {
+      noObject = 1;
       dustbinFullDetected = false;
     }
   }
   if (shown == 0) {
+    if(temp>0)
+    {
+      noObject = 1;
+    }
+    else
+     noObject = 0;
     snprintf(last_prediction, sizeof(last_prediction), "No objects");
     dustbinFullDetected = false;
+    
   }
 #else
   float best_val = -1.0f;
