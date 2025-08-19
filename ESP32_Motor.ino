@@ -1,24 +1,41 @@
 /*
- * ESP32 receive the CAM video and control the motor 
-*/
+ * ESP32 Rover + ESP32-CAM stream + Motor Control + Gas Sensor + Blynk + mDNS
+ */
+
+#define BLYNK_TEMPLATE_ID "TMPL3aFPDopeM"
+#define BLYNK_TEMPLATE_NAME "Smart dustbin"
+#define BLYNK_AUTH_TOKEN "wjKzlfJfcuuzvxmbqSMD9PzZ6whLxof3"
+#define BLYNK_PRINT Serial
+
 #include <WiFi.h>
 #include <WebServer.h>
+#include <BlynkSimpleEsp32.h>
+#include <ESPmDNS.h>   // <-- for hostname
 
-const char* ssid = "****";
-const char* password = "******";
+// ===== WiFi + Blynk =====
+char auth[] = BLYNK_AUTH_TOKEN;  // replace with your Blynk token
+const char* ssid = "Embedded";
+const char* password = "0987654321";
 
-// ESP32-CAM stream URL (must be /stream)
-const char* cam_url = "http://192.168.1.200/stream";
+// ESP32-CAM stream URL (hostname based, not IP)
+const char* cam_url = "http://esp32cam.local/stream";
 
-// Motor control pins
+// ===== Motor control pins =====
 #define IN1 14
 #define IN2 27
 #define IN3 26
 #define IN4 25
 
+// ===== Gas sensor pins =====
+#define GAS_SENSOR1 33
+#define GAS_SENSOR2 35
+
+// Motor speed (PWM duty) hardcoded = 200
+int motorSpeed = 200; // range 0-255
+
 WebServer server(80);
 
-// HTML UI (with auto-reload video)
+// ===== HTML Page =====
 const char MAIN_page[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
@@ -59,28 +76,44 @@ setInterval(reloadStream, 5000);
 // ===== Motor control functions =====
 void forward() {
   Serial.println("Forward");
-  digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);
-  digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW);
+  analogWrite(IN1, motorSpeed); digitalWrite(IN2, LOW);
+  analogWrite(IN3, motorSpeed); digitalWrite(IN4, LOW);
 }
 void backward() {
   Serial.println("Backward");
-  digitalWrite(IN1, LOW); digitalWrite(IN2, HIGH);
-  digitalWrite(IN3, LOW); digitalWrite(IN4, HIGH);
+  digitalWrite(IN1, LOW); analogWrite(IN2, motorSpeed);
+  digitalWrite(IN3, LOW); analogWrite(IN4, motorSpeed);
 }
 void left() {
   Serial.println("Left");
-  digitalWrite(IN1, LOW); digitalWrite(IN2, HIGH);
-  digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW);
+  digitalWrite(IN1, LOW); analogWrite(IN2, motorSpeed);
+  analogWrite(IN3, motorSpeed); digitalWrite(IN4, LOW);
 }
 void right() {
   Serial.println("Right");
-  digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);
-  digitalWrite(IN3, LOW); digitalWrite(IN4, HIGH);
+  analogWrite(IN1, motorSpeed); digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW); analogWrite(IN4, motorSpeed);
 }
 void stopMotor() {
   Serial.println("Stop");
   digitalWrite(IN1, LOW); digitalWrite(IN2, LOW);
   digitalWrite(IN3, LOW); digitalWrite(IN4, LOW);
+}
+
+// ===== Blynk Virtual Pin Handler =====
+BLYNK_WRITE(V0) {
+  int value = param.asInt();
+  if (value == 1) {
+    Serial.println("Blynk V0 HIGH");
+  }
+}
+
+void sendGasSensor() {
+  int gas1 = analogRead(GAS_SENSOR1);
+  int gas2 = analogRead(GAS_SENSOR2);
+
+  Blynk.virtualWrite(V1, gas1);
+  Blynk.virtualWrite(V2, gas2);
 }
 
 void setup() {
@@ -91,7 +124,7 @@ void setup() {
   pinMode(IN3, OUTPUT); pinMode(IN4, OUTPUT);
   stopMotor();
 
-  // Wi-Fi connection
+  // WiFi + Blynk
   WiFi.begin(ssid, password);
   Serial.print("Connecting to WiFi");
   while (WiFi.status() != WL_CONNECTED) {
@@ -99,7 +132,17 @@ void setup() {
     Serial.print(".");
   }
   Serial.println();
+  Serial.print("WiFi Connected, IP: ");
   Serial.println(WiFi.localIP());
+
+  Blynk.begin(auth, ssid, password);
+
+  // Start mDNS with hostname "esp32rover"
+  if (!MDNS.begin("esp32rover")) {
+    Serial.println("Error starting mDNS!");
+  } else {
+    Serial.println("mDNS responder started: http://esp32rover.local/");
+  }
 
   // Prepare HTML page
   String page = MAIN_page;
@@ -118,4 +161,11 @@ void setup() {
 
 void loop() {
   server.handleClient();
+  Blynk.run();
+
+  static unsigned long lastSend = 0;
+  if (millis() - lastSend > 2000) { // send every 2 sec
+    sendGasSensor();
+    lastSend = millis();
+  }
 }
